@@ -50,11 +50,16 @@ sys.path.insert(0, project_root)
 from pidog_brain.logging_config import setup_logging
 
 
-def check_environment():
-    """Check that required environment variables are set"""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+def check_environment(local_only: bool = False):
+    """Check that required environment variables are set
+
+    Args:
+        local_only: If True, API key is optional
+    """
+    if not local_only and not os.environ.get("ANTHROPIC_API_KEY"):
         print("ERROR: ANTHROPIC_API_KEY environment variable not set")
         print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
+        print("Or use --local-only flag to run without Claude API")
         sys.exit(1)
 
 
@@ -189,7 +194,8 @@ Respond naturally and use ACTIONS: and TOOL: lines when appropriate.
 
 def run_full_mode(args):
     """Run in full mode with hardware"""
-    print(f"=== Starting {args.name} in Full Mode ===\n")
+    mode_str = "Local-Only Mode" if args.local_only else "Full Mode"
+    print(f"=== Starting {args.name} in {mode_str} ===\n")
 
     from pidog_brain.autonomous_dog import AutonomousDog
 
@@ -203,7 +209,8 @@ def run_full_mode(args):
         vad_silence_threshold=args.vad_silence,
         maintenance_enabled=not args.no_maintenance,
         maintenance_interval_hours=args.maintenance_interval,
-        maintenance_model=args.maintenance_model
+        maintenance_model=args.maintenance_model,
+        local_only=args.local_only
     )
 
     # Handle shutdown gracefully
@@ -219,12 +226,16 @@ def run_full_mode(args):
         dog.start()
 
         print(f"\n{args.name} is running!")
+        if args.local_only:
+            print("Mode: LOCAL-ONLY (no Claude API calls for autonomous behavior)")
+        else:
+            print(f"Mode: Full (Claude API for autonomous behavior)")
         print(f"Wake word: 'hey {args.name.lower()}'")
         if args.conversation_mode == 'timeout':
             print(f"Conversation mode: timeout ({args.conversation_timeout}s window)")
         elif args.conversation_mode == 'vad':
             print(f"Conversation mode: VAD ({args.vad_silence}s silence threshold)")
-        if not args.no_maintenance:
+        if not args.no_maintenance and not args.local_only:
             print(f"Memory maintenance: every {args.maintenance_interval}h (model: {args.maintenance_model})")
         else:
             print("Memory maintenance: disabled")
@@ -316,6 +327,8 @@ Examples:
                        help='Claude model for maintenance consolidation (default: claude-sonnet-4-20250514)')
     parser.add_argument('--no-maintenance', action='store_true',
                        help='Disable automatic memory maintenance')
+    parser.add_argument('--local-only', action='store_true',
+                       help='Use local behavior engine instead of Claude API (no API costs, faster response, offline capable)')
 
     args = parser.parse_args()
 
@@ -333,7 +346,8 @@ Examples:
 
     # Check environment
     if not args.test:
-        check_environment()
+        # Interactive mode always needs API key, full mode only if not local_only
+        check_environment(local_only=args.local_only and not args.interactive)
 
     # Run appropriate mode
     if args.test:

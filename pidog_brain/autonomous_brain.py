@@ -19,6 +19,7 @@ from enum import Enum, auto
 import json
 
 from .memory_manager import MemoryManager
+from .behavior_engine import BehaviorEngine, ObservationContext, Decision
 
 logger = logging.getLogger(__name__)
 from .personality import PersonalityManager, Mood
@@ -226,7 +227,8 @@ class AutonomousBrain:
                  speak_callback: Optional[Callable[[str], None]] = None,
                  vision_callbacks: Optional[Dict[str, Callable]] = None,
                  max_calls_per_minute: int = 5,
-                 min_think_interval: float = 30.0):
+                 min_think_interval: float = 30.0,
+                 local_only: bool = False):
         """Initialize autonomous brain
 
         Args:
@@ -238,12 +240,14 @@ class AutonomousBrain:
             vision_callbacks: Dict of vision callbacks for tools
             max_calls_per_minute: Max Claude API calls per minute
             min_think_interval: Minimum seconds between thinks
+            local_only: If True, use local behavior engine instead of Claude API
         """
         self.memory = memory_manager
         self.personality = personality_manager
         self.llm_callback = llm_callback
         self.action_callback = action_callback
         self.speak_callback = speak_callback
+        self.local_only = local_only
 
         # Create tool executor
         self.tools = ToolExecutor(
@@ -253,12 +257,22 @@ class AutonomousBrain:
             vision_callbacks=vision_callbacks or {}
         )
 
+        # Create behavior engine for local mode
+        self.behavior_engine = BehaviorEngine(
+            memory_manager=memory_manager,
+            personality_manager=personality_manager
+        )
+
         # State
         self.state = AutonomousState.IDLE
         self.mood = Mood()
 
-        # Rate limiting
-        self.rate_limiter = RateLimiter(max_calls_per_minute, min_think_interval)
+        # Rate limiting (less restrictive for local mode)
+        if local_only:
+            # Local mode: think more often since no API costs
+            self.rate_limiter = RateLimiter(max_calls_per_minute=30, min_interval=5.0)
+        else:
+            self.rate_limiter = RateLimiter(max_calls_per_minute, min_think_interval)
 
         # Novelty detection
         self.novelty_detector = NoveltyDetector()
@@ -277,6 +291,16 @@ class AutonomousBrain:
         # Timing
         self._last_interaction = time.time()
         self._idle_since = time.time()
+
+        # Recent observations for local behavior engine
+        self._recent_person: Optional[str] = None  # Name or None for unknown
+        self._person_detected = False
+        self._person_is_new = False
+        self._last_person_time = 0.0
+        self._person_left_time = 0.0  # When person last left view (for returning detection)
+        self._obstacle_distance = 100.0
+        self._touch_detected = False
+        self._touch_style: Optional[str] = None
 
     def start(self):
         """Start the autonomous brain thread"""
@@ -374,6 +398,10 @@ class AutonomousBrain:
             event = obs.value.get("event", "")
             if event == "person_entered_view":
                 # Person appeared - might want to greet
+                self._person_detected = True
+                self._recent_person = None  # Unknown person
+                self._person_is_new = True
+                self._last_person_time = time.time()
                 with self._lock:
                     if self.state == AutonomousState.IDLE:
                         self.state = AutonomousState.CURIOUS
@@ -381,12 +409,32 @@ class AutonomousBrain:
             elif event == "face_recognized":
                 # Recognized someone - could greet by name
                 name = obs.value.get("name", "")
+                self._person_detected = True
+                self._recent_person = name
+                self._person_is_new = obs.novelty > 0.5
+                self._last_person_time = time.time()
                 if name and self.state == AutonomousState.IDLE:
                     with self._lock:
                         self.state = AutonomousState.CURIOUS
 
+            elif event == "unknown_face_detected":
+                self._person_detected = True
+                self._recent_person = None
+                self._person_is_new = True
+                self._last_person_time = time.time()
+
+            elif event == "person_left_view":
+                self._person_detected = False
+                self._person_left_time = time.time()  # Track when person left for returning detection
+
+        elif obs.sensor_type == "ultrasonic":
+            # Track obstacle distance
+            self._obstacle_distance = obs.value if isinstance(obs.value, (int, float)) else 100.0
+
         elif obs.sensor_type == "touch" and obs.value:
             # Touch detected (thread-safe mood update)
+            self._touch_detected = True
+            self._touch_style = obs.value if isinstance(obs.value, str) else None
             with self._mood_lock:
                 self.mood.happiness = min(1.0, self.mood.happiness + 0.1)
 
@@ -422,13 +470,19 @@ class AutonomousBrain:
         self._do_think()
 
     def _do_think(self):
-        """Execute a think cycle"""
+        """Execute a think cycle - delegates to local or API-based thinking"""
         # Check for shutdown before expensive operations
         if not self._running:
             with self._lock:
                 self.state = AutonomousState.IDLE
             return
 
+        # Use local behavior engine if in local_only mode
+        if self.local_only:
+            self._do_think_local()
+            return
+
+        # API-based thinking requires callback
         if self.llm_callback is None:
             with self._lock:
                 self.state = AutonomousState.IDLE
@@ -472,6 +526,130 @@ class AutonomousBrain:
         finally:
             with self._lock:
                 self.state = AutonomousState.IDLE
+
+    def _do_think_local(self):
+        """Execute a think cycle using local behavior engine (no API calls)"""
+        try:
+            self.rate_limiter.record_call()
+
+            # Build observation context for behavior engine
+            obs_context = self._build_observation_context()
+
+            # Get mood and personality (thread-safe)
+            with self._mood_lock:
+                mood = Mood(
+                    happiness=self.mood.happiness,
+                    excitement=self.mood.excitement,
+                    tiredness=self.mood.tiredness,
+                    boredom=self.mood.boredom,
+                    curiosity_level=self.mood.curiosity_level
+                )
+            personality = self.personality.get()
+
+            # Get memory context for behavior engine
+            memory_ctx = self._build_memory_context()
+
+            # Get decision from behavior engine
+            decision = self.behavior_engine.decide(
+                mood=mood,
+                personality=personality,
+                observations=obs_context,
+                memory_context=memory_ctx
+            )
+
+            # Execute the decision
+            self._execute_decision(decision)
+
+            # Reset observation flags after processing
+            self._touch_detected = False
+            self._touch_style = None
+
+            # Reset curiosity after thinking (thread-safe)
+            with self._mood_lock:
+                self.mood.curiosity_level = max(0.3, self.mood.curiosity_level - 0.2)
+                self.mood.boredom = max(0.0, self.mood.boredom - 0.3)
+
+        except Exception as e:
+            logger.error(f"Local think error: {e}")
+
+        finally:
+            with self._lock:
+                self.state = AutonomousState.IDLE
+
+    def _build_observation_context(self) -> ObservationContext:
+        """Build observation context for behavior engine"""
+        # Check for active goals
+        active_goals = self.memory.get_active_goals() if self.memory else []
+        has_goal = len(active_goals) > 0
+        goal_id = active_goals[0].id if has_goal else None
+        goal_desc = active_goals[0].description if has_goal else None
+
+        # Check if person is returning (was seen, left, now back)
+        person_is_returning = (
+            self._person_detected and
+            self._recent_person is not None and
+            not self._person_is_new and
+            self._person_left_time > 0 and
+            (time.time() - self._person_left_time) < 300  # Returned within 5 minutes
+        )
+
+        return ObservationContext(
+            person_detected=self._person_detected,
+            person_name=self._recent_person,
+            person_is_new=self._person_is_new,
+            person_is_returning=person_is_returning,
+            face_detected=self._person_detected and self._recent_person is not None,
+            obstacle_detected=self._obstacle_distance < 30,
+            obstacle_distance=self._obstacle_distance,
+            touch_detected=self._touch_detected,
+            touch_style=self._touch_style,
+            time_since_last_person=time.time() - self._last_person_time if self._last_person_time > 0 else float('inf'),
+            time_since_last_interaction=time.time() - self._last_interaction,
+            idle_time=time.time() - self._idle_since,
+            has_active_goal=has_goal,
+            active_goal_id=goal_id,
+            active_goal_description=goal_desc
+        )
+
+    def _build_memory_context(self) -> Dict[str, Any]:
+        """Build memory context for behavior engine"""
+        if not self.memory:
+            return {}
+
+        # Get memories about the current person if detected
+        person_memories = {}
+        if self._recent_person:
+            memories = self.memory.recall(self._recent_person, limit=3)
+            if memories:
+                person_memories[self._recent_person] = [m.content for m in memories]
+
+        return {
+            'person_memories': person_memories,
+            'recent_interactions': [],  # Could add more context here
+        }
+
+    def _execute_decision(self, decision: Decision):
+        """Execute a behavior decision
+
+        Args:
+            decision: Decision from behavior engine
+        """
+        # Execute tools first (may update memory/goals)
+        for tool in decision.tools:
+            tool_name = tool.get('name', '')
+            params = tool.get('params', {})
+            if tool_name:
+                result = self.tools.execute_tool(tool_name, params)
+                if not result.success:
+                    logger.warning(f"Tool {tool_name} failed: {result.message}")
+
+        # Execute actions
+        if decision.actions and self.action_callback:
+            self.action_callback(decision.actions)
+
+        # Speak if there's speech
+        if decision.speech and self.speak_callback:
+            self.speak_callback(decision.speech)
 
     def _build_autonomous_prompt(self) -> str:
         """Build prompt for autonomous thinking"""
@@ -557,7 +735,10 @@ Keep responses brief - you're just thinking to yourself.
                 'mood': mood_snapshot,
                 'can_think': self.rate_limiter.can_call(),
                 'time_until_think': self.rate_limiter.time_until_next(),
-                'idle_time': time.time() - self._idle_since
+                'idle_time': time.time() - self._idle_since,
+                'local_only': self.local_only,
+                'person_detected': self._person_detected,
+                'recent_person': self._recent_person
             }
 
 

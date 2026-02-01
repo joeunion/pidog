@@ -316,7 +316,8 @@ class AutonomousDog:
                  vad_silence_threshold: float = 2.0,
                  maintenance_enabled: bool = True,
                  maintenance_interval_hours: float = 6.0,
-                 maintenance_model: str = "claude-sonnet-4-20250514"):
+                 maintenance_model: str = "claude-sonnet-4-20250514",
+                 local_only: bool = False):
         """Initialize autonomous dog
 
         Args:
@@ -338,6 +339,7 @@ class AutonomousDog:
             maintenance_enabled: Enable automatic memory maintenance
             maintenance_interval_hours: Hours between maintenance runs
             maintenance_model: Claude model for maintenance consolidation
+            local_only: If True, use local behavior engine instead of Claude API
         """
         self.name = name
         self.llm_model = llm_model
@@ -356,6 +358,7 @@ class AutonomousDog:
         self.maintenance_enabled = maintenance_enabled
         self.maintenance_interval_hours = maintenance_interval_hours
         self.maintenance_model = maintenance_model
+        self.local_only = local_only
 
         # Initialize memory and personality
         self.memory = MemoryManager(db_path)
@@ -384,7 +387,20 @@ class AutonomousDog:
         self._shutdown_event = threading.Event()
 
     def _init_llm(self):
-        """Initialize LLM with robustness wrapper and structured outputs"""
+        """Initialize LLM with robustness wrapper and structured outputs
+
+        In local_only mode, LLM is optional - skip initialization if no API key.
+        """
+        if self.local_only:
+            # In local mode, LLM is optional for voice interactions
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                logger.info("Local-only mode: Skipping LLM initialization (no API key)")
+                self.llm = None
+                self.robust_llm = None
+                return
+            logger.info("Local-only mode: LLM available for voice interactions")
+
         from .anthropic_llm import Anthropic, PIDOG_RESPONSE_SCHEMA, STRUCTURED_OUTPUT_MODELS
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -484,13 +500,17 @@ class AutonomousDog:
                 'explore': self._explore
             }
 
+        # In local_only mode, llm_callback can be None
+        llm_callback = self._autonomous_prompt if not self.local_only else None
+
         self.brain = AutonomousBrain(
             memory_manager=self.memory,
             personality_manager=self.personality,
-            llm_callback=self._autonomous_prompt,
+            llm_callback=llm_callback,
             action_callback=self._execute_actions,
             speak_callback=self._speak,
-            vision_callbacks=vision_callbacks
+            vision_callbacks=vision_callbacks,
+            local_only=self.local_only
         )
 
         # Initialize vision event processor
@@ -504,6 +524,11 @@ class AutonomousDog:
     def _init_maintenance(self):
         """Initialize memory maintenance system"""
         if not self.maintenance_enabled:
+            return
+
+        # Memory maintenance requires Claude API
+        if self.local_only:
+            logger.info("Local-only mode: Memory maintenance disabled (requires API)")
             return
 
         # Create a separate LLM instance for maintenance
@@ -820,6 +845,7 @@ class AutonomousDog:
         status = {
             'name': self.name,
             'running': self._running,
+            'local_only': self.local_only,
             'memory_stats': self.memory.get_stats(),
             'personality': self.personality.get().to_dict(),
         }
