@@ -20,8 +20,7 @@ venv/
 dist/
 build/
 
-# Downloaded/vendor code (install via pip on Pi)
-downloaded_code/
+# Note: downloaded_code/ is committed for reference
 
 # Database files (stored on Pi data partition)
 *.db
@@ -38,5 +37,4 @@ test_image.jpg
 .DS_Store
 Thumbs.db
 
-# Claude session files
-.claude/
+# Note: .claude/ is committed for session history

@@ -1,0 +1,7 @@
+.vscode/*
+dev/*
+photo
+test/photo*
+test/scene/*
+backups/*
+**secret*
