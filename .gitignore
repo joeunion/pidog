@@ -1,0 +1,42 @@
+# Environment and secrets
+.env
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Downloaded/vendor code (install via pip on Pi)
+downloaded_code/
+
+# Database files (stored on Pi data partition)
+*.db
+*.db-journal
+
+# Personality state (stored on Pi data partition)
+personality.json
+
+# Test artifacts
+test_image.jpg
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude session files
+.claude/

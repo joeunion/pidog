@@ -1,0 +1,11 @@
+# PiDog Servo Calibration Offsets
+# Saved: 2026-01-25
+
+# Leg servos (1-8)
+leg_offset: -8.79, -1.76, 5.71, -1.76, 11.87, -5.71, -6.59, -2.64
+
+# Head servos (yaw, roll, pitch)
+head_offset: 0.88, -2.64, 1.76
+
+# These are stored in ~/.config/pidog/pidog.conf
+# and loaded automatically when Pidog() initializes

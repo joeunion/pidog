@@ -1,0 +1,5 @@
+# PiDog Calibration Values
+# Date: 2026-01-19
+
+leg_offset: -5.71, -2.20, 5.71, -3.96, 12.31, -7.47, -3.96, -4.40
+head_offset: 2.64, -4.40, 1.32
