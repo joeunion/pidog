@@ -14,6 +14,8 @@ This module extends VoiceActiveDog to add:
 import os
 import sys
 import time
+import atexit
+import signal
 import threading
 import logging
 from typing import Optional, List, Dict, Any, Callable
@@ -588,21 +590,72 @@ class AutonomousDog:
             rooms_context=rooms_context
         )
 
+    # Map template action names to valid Pidog actions
+    # Valid Pidog actions: stand, sit, lie, lie_with_hands_out, forward, backward,
+    # turn_left, turn_right, trot, stretch, push_up, doze_off, nod_lethargy,
+    # shake_head, tilting_head_left, tilting_head_right, tilting_head,
+    # head_bark, wag_tail, head_up_down, half_sit
+    ACTION_MAP = {
+        'bark': 'head_bark',
+        'bark happy': 'head_bark',
+        'bark excited': 'head_bark',
+        'nod': 'head_up_down',
+        'head tilt': 'tilting_head',
+        'tilt head': 'tilting_head',
+        'lie down': 'lie',
+        'look around': 'tilting_head',
+        'think': 'tilting_head',
+        'sniff': 'head_up_down',
+        'yawn': 'doze_off',
+        'sleep': 'doze_off',
+        'spin': 'turn_right',
+        'excited spin': 'turn_right',
+        'play bow': 'stretch',
+        'shake head': 'shake_head',
+    }
+
     def _execute_actions(self, actions: List[str]):
         """Execute actions on the dog"""
         if self.voice_dog and hasattr(self.voice_dog, 'action_flow'):
             self.voice_dog.action_flow.add_action(*actions)
+        elif hasattr(self, 'pidog') and self.pidog:
+            # Local-only mode: use Pidog directly
+            for action in actions:
+                try:
+                    # First check our mapping table
+                    action_lower = action.lower()
+                    if action_lower in self.ACTION_MAP:
+                        action_name = self.ACTION_MAP[action_lower]
+                    else:
+                        # Convert spaces to underscores (e.g., "wag tail" -> "wag_tail")
+                        action_name = action_lower.replace(' ', '_')
+
+                    logger.debug(f"Executing action: {action_name}")
+                    self.pidog.do_action(action_name, speed=80)
+                except Exception as e:
+                    logger.warning(f"Action '{action}' -> '{action_name}' failed: {e}")
 
     def _speak(self, text: str):
         """Make the dog speak"""
         if self.voice_dog and hasattr(self.voice_dog, 'say'):
             self.voice_dog.say(text)
+        elif hasattr(self, 'pidog') and self.pidog:
+            # Local-only mode: use Pidog TTS directly if available
+            try:
+                self.pidog.speak(text)
+            except Exception as e:
+                logger.debug(f"TTS not available in local mode: {e}")
 
     def _get_distance(self) -> float:
         """Get ultrasonic distance"""
         if self.voice_dog and hasattr(self.voice_dog, 'dog'):
             try:
                 return self.voice_dog.dog.read_distance()
+            except Exception:
+                pass  # Sensor unavailable
+        elif hasattr(self, 'pidog') and self.pidog:
+            try:
+                return self.pidog.read_distance()
             except Exception:
                 pass  # Sensor unavailable
         return 100.0  # Assume clear if sensor fails
@@ -706,53 +759,64 @@ class AutonomousDog:
         if HARDWARE_AVAILABLE:
             logger.info("Initializing PiDog hardware...")
             try:
-                # Build instructions with memory context
-                instructions = self._get_instructions()
+                # In local_only mode without LLM, skip VoiceAssistant (requires LLM)
+                # and just use the base Pidog hardware directly
+                if self.local_only and self.llm is None:
+                    logger.info("Local-only mode: Using Pidog hardware without VoiceAssistant")
+                    from pidog import Pidog
+                    self.pidog = Pidog()
+                    self.voice_dog = None
+                else:
+                    # Build instructions with memory context
+                    instructions = self._get_instructions()
 
-                # Create the voice-activated dog
-                # Use shorter cooldown when conversation mode is enabled
-                cooldown = 0.2 if self.conversation_mode != "none" else 1.0
-                self.voice_dog = AutonomousVoiceActiveDog(
-                    autonomous_dog=self,
-                    name=self.name,
-                    llm=self.llm,
-                    tts_model=self.tts_model,
-                    stt_language=self.stt_language,
-                    with_image=self.with_image,
-                    wake_enable=self.wake_enable,
-                    wake_word=self.wake_word,
-                    answer_on_wake="",  # Disabled - no speech on wake
-                    instructions=instructions,
-                    round_cooldown=cooldown
-                )
+                    # Create the voice-activated dog
+                    # Use shorter cooldown when conversation mode is enabled
+                    cooldown = 0.2 if self.conversation_mode != "none" else 1.0
+                    self.voice_dog = AutonomousVoiceActiveDog(
+                        autonomous_dog=self,
+                        name=self.name,
+                        llm=self.llm,
+                        tts_model=self.tts_model,
+                        stt_language=self.stt_language,
+                        with_image=self.with_image,
+                        wake_enable=self.wake_enable,
+                        wake_word=self.wake_word,
+                        answer_on_wake="",  # Disabled - no speech on wake
+                        instructions=instructions,
+                        round_cooldown=cooldown
+                    )
 
                 # Start the voice assistant in a thread (run() is blocking)
-                self._voice_thread = threading.Thread(target=self.voice_dog.run, daemon=True)
-                self._voice_thread.start()
-                logger.info("Voice assistant started")
+                if self.voice_dog is not None:
+                    self._voice_thread = threading.Thread(target=self.voice_dog.run, daemon=True)
+                    self._voice_thread.start()
+                    logger.info("Voice assistant started")
 
-                # Share picamera2 instance with CameraPool for vision components
-                # Wait briefly for camera to initialize
-                time.sleep(0.5)
-                if hasattr(self.voice_dog, 'picam2') and self.voice_dog.picam2 is not None:
-                    CameraPool.get_instance().set_picam2(self.voice_dog.picam2)
-                    logger.info("Camera shared with vision system")
+                    # Share picamera2 instance with CameraPool for vision components
+                    # Wait briefly for camera to initialize
+                    time.sleep(0.5)
+                    if hasattr(self.voice_dog, 'picam2') and self.voice_dog.picam2 is not None:
+                        CameraPool.get_instance().set_picam2(self.voice_dog.picam2)
+                        logger.info("Camera shared with vision system")
 
-                # Initialize conversation manager for wake-word-free follow-ups
-                if self.conversation_mode != "none":
-                    self.conversation_manager = ConversationManager(
-                        mode=self.conversation_mode,
-                        timeout=self.conversation_timeout,
-                        vad_silence=self.vad_silence_threshold
-                    )
-                    # Connect to STT and register as a trigger (if STT is available)
-                    if self.voice_dog.stt:
-                        self.conversation_manager.set_stt(self.voice_dog.stt)
-                        self.voice_dog.add_trigger(self.conversation_manager.trigger)
-                        logger.info(f"Conversation mode '{self.conversation_mode}' enabled")
-                    else:
-                        logger.warning("STT not available, conversation mode disabled")
-                        self.conversation_manager = None
+                    # Initialize conversation manager for wake-word-free follow-ups
+                    if self.conversation_mode != "none":
+                        self.conversation_manager = ConversationManager(
+                            mode=self.conversation_mode,
+                            timeout=self.conversation_timeout,
+                            vad_silence=self.vad_silence_threshold
+                        )
+                        # Connect to STT and register as a trigger (if STT is available)
+                        if self.voice_dog.stt:
+                            self.conversation_manager.set_stt(self.voice_dog.stt)
+                            self.voice_dog.add_trigger(self.conversation_manager.trigger)
+                            logger.info(f"Conversation mode '{self.conversation_mode}' enabled")
+                        else:
+                            logger.warning("STT not available, conversation mode disabled")
+                            self.conversation_manager = None
+                else:
+                    logger.info("Running in local-only mode without voice assistant")
 
             except Exception as e:
                 logger.error(f"Failed to initialize hardware: {e}")
@@ -763,6 +827,9 @@ class AutonomousDog:
             logger.warning("Hardware not available (running on non-Pi?)")
 
         self._running = True
+
+        # Register cleanup handlers for graceful shutdown
+        self._register_cleanup_handlers()
 
         # Start autonomous brain
         if self.brain:
@@ -781,6 +848,29 @@ class AutonomousDog:
             self.maintainer.start()
 
         logger.info(f"{self.name} is ready!")
+
+    def _register_cleanup_handlers(self):
+        """Register atexit and signal handlers for proper GPIO cleanup"""
+        # Track if we've already cleaned up
+        self._cleanup_done = False
+
+        def cleanup():
+            if not self._cleanup_done:
+                self._cleanup_done = True
+                self.stop()
+
+        # Register atexit for normal exits
+        atexit.register(cleanup)
+
+        # Register signal handlers for SIGINT (Ctrl+C) and SIGTERM
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, shutting down...")
+            cleanup()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        logger.debug("Cleanup handlers registered")
 
     def stop(self):
         """Stop the autonomous dog with proper cleanup
@@ -834,7 +924,16 @@ class AutonomousDog:
         # 5. Release camera (after all consumers stopped)
         CameraPool.get_instance().release()
 
-        # 6. Close database last
+        # 6. Close Pidog hardware (release GPIO)
+        if hasattr(self, 'pidog') and self.pidog:
+            try:
+                self.pidog.close()
+                logger.info("Pidog hardware released")
+            except Exception as e:
+                logger.warning(f"Error closing Pidog: {e}")
+            self.pidog = None
+
+        # 7. Close database last
         if self.memory:
             self.memory.close()
 

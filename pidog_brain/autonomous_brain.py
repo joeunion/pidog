@@ -308,6 +308,14 @@ class AutonomousBrain:
             return
 
         self._running = True
+
+        # In local_only mode, start with higher boredom to trigger immediate action
+        if self.local_only:
+            with self._mood_lock:
+                self.mood.boredom = 0.7  # Start bored to trigger first action
+                self.mood.curiosity_level = 0.5
+            logger.info("Local mode: Starting with elevated boredom to trigger actions")
+
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
@@ -531,9 +539,11 @@ class AutonomousBrain:
         """Execute a think cycle using local behavior engine (no API calls)"""
         try:
             self.rate_limiter.record_call()
+            logger.info("Local think cycle started")
 
             # Build observation context for behavior engine
             obs_context = self._build_observation_context()
+            logger.debug(f"Observations: person={obs_context.person_detected}, boredom={self.mood.boredom:.2f}")
 
             # Get mood and personality (thread-safe)
             with self._mood_lock:
@@ -556,6 +566,7 @@ class AutonomousBrain:
                 observations=obs_context,
                 memory_context=memory_ctx
             )
+            logger.info(f"Decision: speech='{decision.speech[:50] if decision.speech else ''}...', actions={decision.actions}")
 
             # Execute the decision
             self._execute_decision(decision)
