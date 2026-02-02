@@ -45,6 +45,14 @@ except ImportError:
     HARDWARE_AVAILABLE = False
     logger.warning("PiDog hardware modules not available")
 
+# Import TTS for local-only mode
+try:
+    from sunfounder_voice_assistant.tts import Piper
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+    logger.debug("Piper TTS not available")
+
 
 # Instructions for autonomous PiDog
 AUTONOMOUS_INSTRUCTIONS = """
@@ -599,6 +607,7 @@ class AutonomousDog:
         'bark': 'head_bark',
         'bark happy': 'head_bark',
         'bark excited': 'head_bark',
+        'bark harder': 'head_bark',
         'nod': 'head_up_down',
         'head tilt': 'tilting_head',
         'tilt head': 'tilting_head',
@@ -608,10 +617,17 @@ class AutonomousDog:
         'sniff': 'head_up_down',
         'yawn': 'doze_off',
         'sleep': 'doze_off',
+        'doze off': 'doze_off',
         'spin': 'turn_right',
         'excited spin': 'turn_right',
         'play bow': 'stretch',
         'shake head': 'shake_head',
+        'twist body': 'turn_right',
+        'lick hand': 'head_up_down',
+        'whimper': 'head_up_down',
+        'surprise': 'tilting_head',
+        'recall': 'tilting_head',
+        'stop': 'stand',
     }
 
     def _execute_actions(self, actions: List[str]):
@@ -637,14 +653,18 @@ class AutonomousDog:
 
     def _speak(self, text: str):
         """Make the dog speak"""
+        if not text:
+            return
+
         if self.voice_dog and hasattr(self.voice_dog, 'say'):
             self.voice_dog.say(text)
-        elif hasattr(self, 'pidog') and self.pidog:
-            # Local-only mode: use Pidog TTS directly if available
+        elif hasattr(self, 'tts') and self.tts:
+            # Local-only mode: use Piper TTS
             try:
-                self.pidog.speak(text)
+                logger.debug(f"Speaking: {text}")
+                self.tts.say(text)
             except Exception as e:
-                logger.debug(f"TTS not available in local mode: {e}")
+                logger.warning(f"TTS failed: {e}")
 
     def _get_distance(self) -> float:
         """Get ultrasonic distance"""
@@ -766,6 +786,18 @@ class AutonomousDog:
                     from pidog import Pidog
                     self.pidog = Pidog()
                     self.voice_dog = None
+
+                    # Initialize TTS for local-only mode
+                    if TTS_AVAILABLE:
+                        try:
+                            self.tts = Piper()
+                            self.tts.set_model('en_US-lessac-medium')
+                            logger.info("Local TTS initialized (Piper)")
+                        except Exception as e:
+                            logger.warning(f"Failed to initialize TTS: {e}")
+                            self.tts = None
+                    else:
+                        self.tts = None
                 else:
                     # Build instructions with memory context
                     instructions = self._get_instructions()
