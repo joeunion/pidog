@@ -155,60 +155,63 @@ dog.close()
 - `03-locomotion.md` - Walk and trot gait algorithms
 - `04-sensors-peripherals.md` - IMU, RGB, touch, sound direction
 - `05-llm-integration.md` - Claude API and voice assistant
+- `06-basic-examples.md` - 13 basic examples (init, servos, sensors)
+- `07-advanced-examples.md` - 23 advanced examples (behaviors, LLM, voice)
+- `08-tests.md` - 11 hardware test files
 
 ## Examples Index
 
 | Example File | Documented In | Status |
 |-------------|--------------|--------|
-| `basic_examples/1_pidog_init.py` | 06-basic-examples.md | not started |
-| `basic_examples/2_legs_control.py` | 06-basic-examples.md | not started |
-| `basic_examples/3_head_control.py` | 06-basic-examples.md | not started |
-| `basic_examples/4_tail_control.py` | 06-basic-examples.md | not started |
-| `basic_examples/5_stop_actions.py` | 06-basic-examples.md | not started |
-| `basic_examples/6_do_preset_actions.py` | 06-basic-examples.md | not started |
-| `basic_examples/7_sound_effect.py` | 06-basic-examples.md | not started |
-| `basic_examples/8_ultrasonic_read.py` | 06-basic-examples.md | not started |
-| `basic_examples/9_rgb_control.py` | 06-basic-examples.md | not started |
-| `basic_examples/10_imu_read.py` | 06-basic-examples.md | not started |
-| `basic_examples/11_sound_direction_read.py` | 06-basic-examples.md | not started |
-| `basic_examples/12_dual_touch_read.py` | 06-basic-examples.md | not started |
-| `basic_examples/13_camera_easy_use.py` | 06-basic-examples.md | not started |
-| `examples/0_calibration.py` | 07-advanced-examples.md | not started |
-| `examples/1_wake_up.py` | 07-advanced-examples.md | not started |
-| `examples/2_function_demonstration.py` | 07-advanced-examples.md | not started |
-| `examples/3_patrol.py` | 07-advanced-examples.md | not started |
-| `examples/4_response.py` | 07-advanced-examples.md | not started |
-| `examples/5_rest.py` | 07-advanced-examples.md | not started |
-| `examples/6_be_picked_up.py` | 07-advanced-examples.md | not started |
-| `examples/7_face_track.py` | 07-advanced-examples.md | not started |
-| `examples/8_pushup.py` | 07-advanced-examples.md | not started |
-| `examples/9_howling.py` | 07-advanced-examples.md | not started |
-| `examples/10_balance.py` | 07-advanced-examples.md | not started |
-| `examples/11_keyboard_control.py` | 07-advanced-examples.md | not started |
-| `examples/12_app_control.py` | 07-advanced-examples.md | not started |
-| `examples/13_ball_track.py` | 07-advanced-examples.md | not started |
-| `examples/18.online_llm_test.py` | 07-advanced-examples.md | not started |
-| `examples/19_voice_active_dog_ollama.py` | 07-advanced-examples.md | not started |
-| `examples/20_voice_active_dog_doubao_cn.py` | 07-advanced-examples.md | not started |
-| `examples/20_voice_active_dog_gpt.py` | 07-advanced-examples.md | not started |
-| `examples/claude_pidog.py` | 07-advanced-examples.md | not started |
-| `examples/curses_utils.py` | 07-advanced-examples.md | not started |
-| `examples/custom_actions.py` | 07-advanced-examples.md | not started |
-| `examples/servo_zeroing.py` | 07-advanced-examples.md | not started |
-| `examples/voice_active_dog.py` | 07-advanced-examples.md | not started |
+| `basic_examples/1_pidog_init.py` | 06-basic-examples.md | Done |
+| `basic_examples/2_legs_control.py` | 06-basic-examples.md | Done |
+| `basic_examples/3_head_control.py` | 06-basic-examples.md | Done |
+| `basic_examples/4_tail_control.py` | 06-basic-examples.md | Done |
+| `basic_examples/5_stop_actions.py` | 06-basic-examples.md | Done |
+| `basic_examples/6_do_preset_actions.py` | 06-basic-examples.md | Done |
+| `basic_examples/7_sound_effect.py` | 06-basic-examples.md | Done |
+| `basic_examples/8_ultrasonic_read.py` | 06-basic-examples.md | Done |
+| `basic_examples/9_rgb_control.py` | 06-basic-examples.md | Done |
+| `basic_examples/10_imu_read.py` | 06-basic-examples.md | Done |
+| `basic_examples/11_sound_direction_read.py` | 06-basic-examples.md | Done |
+| `basic_examples/12_dual_touch_read.py` | 06-basic-examples.md | Done |
+| `basic_examples/13_camera_easy_use.py` | 06-basic-examples.md | Done |
+| `examples/0_calibration.py` | 07-advanced-examples.md | Done |
+| `examples/1_wake_up.py` | 07-advanced-examples.md | Done |
+| `examples/2_function_demonstration.py` | 07-advanced-examples.md | Done |
+| `examples/3_patrol.py` | 07-advanced-examples.md | Done |
+| `examples/4_response.py` | 07-advanced-examples.md | Done |
+| `examples/5_rest.py` | 07-advanced-examples.md | Done |
+| `examples/6_be_picked_up.py` | 07-advanced-examples.md | Done |
+| `examples/7_face_track.py` | 07-advanced-examples.md | Done |
+| `examples/8_pushup.py` | 07-advanced-examples.md | Done |
+| `examples/9_howling.py` | 07-advanced-examples.md | Done |
+| `examples/10_balance.py` | 07-advanced-examples.md | Done |
+| `examples/11_keyboard_control.py` | 07-advanced-examples.md | Done |
+| `examples/12_app_control.py` | 07-advanced-examples.md | Done |
+| `examples/13_ball_track.py` | 07-advanced-examples.md | Done |
+| `examples/18.online_llm_test.py` | 07-advanced-examples.md | Done |
+| `examples/19_voice_active_dog_ollama.py` | 07-advanced-examples.md | Done |
+| `examples/20_voice_active_dog_doubao_cn.py` | 07-advanced-examples.md | Done |
+| `examples/20_voice_active_dog_gpt.py` | 07-advanced-examples.md | Done |
+| `examples/claude_pidog.py` | 07-advanced-examples.md | Done |
+| `examples/curses_utils.py` | 07-advanced-examples.md | Done |
+| `examples/custom_actions.py` | 07-advanced-examples.md | Done |
+| `examples/servo_zeroing.py` | 07-advanced-examples.md | Done |
+| `examples/voice_active_dog.py` | 07-advanced-examples.md | Done |
 
 ## Tests Index
 
 | Test File | Documented In | Status |
 |-----------|--------------|--------|
-| `test/angry_bark.py` | 08-tests.md | not started |
-| `test/cover_photo.py` | 08-tests.md | not started |
-| `test/dual_touch_test.py` | 08-tests.md | not started |
-| `test/imu_test.py` | 08-tests.md | not started |
-| `test/power_test.py` | 08-tests.md | not started |
-| `test/rgb_strip_test.py` | 08-tests.md | not started |
-| `test/sound_direction_test.py` | 08-tests.md | not started |
-| `test/stand_test.py` | 08-tests.md | not started |
-| `test/tail.py` | 08-tests.md | not started |
-| `test/ultrasonic_iic_test.py` | 08-tests.md | not started |
-| `test/ultrasonic_test.py` | 08-tests.md | not started |
+| `test/angry_bark.py` | 08-tests.md | Done |
+| `test/cover_photo.py` | 08-tests.md | Done |
+| `test/dual_touch_test.py` | 08-tests.md | Done |
+| `test/imu_test.py` | 08-tests.md | Done |
+| `test/power_test.py` | 08-tests.md | Done |
+| `test/rgb_strip_test.py` | 08-tests.md | Done |
+| `test/sound_direction_test.py` | 08-tests.md | Done |
+| `test/stand_test.py` | 08-tests.md | Done |
+| `test/tail.py` | 08-tests.md | Done |
+| `test/ultrasonic_iic_test.py` | 08-tests.md | Done |
+| `test/ultrasonic_test.py` | 08-tests.md | Done |
