@@ -12,6 +12,7 @@ This module extends VoiceActiveDog to add:
 """
 
 import os
+import re
 import sys
 import time
 import atexit
@@ -36,10 +37,10 @@ from .memory_maintenance import MemoryMaintainer, MaintenanceConfig
 
 # Import PiDog hardware components
 try:
-    from pidog.voice_assistant import VoiceAssistant
-    from pidog.pidog import Pidog
-    from pidog.action_flow import ActionFlow, ActionStatus, Posetures
-    from pidog.dual_touch import TouchStyle
+    from pidog_os.voice_assistant import VoiceAssistant
+    from pidog_os.pidog import Pidog
+    from pidog_os.action_flow import ActionFlow, ActionStatus, Posetures
+    from pidog_os.dual_touch import TouchStyle
     HARDWARE_AVAILABLE = True
 except ImportError:
     HARDWARE_AVAILABLE = False
@@ -52,6 +53,82 @@ try:
 except ImportError:
     TTS_AVAILABLE = False
     logger.debug("Piper TTS not available")
+
+# Import STT for local-only voice commands
+try:
+    from pidog_brain.moonshine_stt import MoonshineStt
+    STT_AVAILABLE = True
+except ImportError:
+    STT_AVAILABLE = False
+    logger.debug("Moonshine STT not available")
+
+
+# Voice command mappings for local-only mode
+VOICE_COMMANDS = {
+    # Basic commands
+    'sit': {'actions': ['sit'], 'speech': 'Sitting!'},
+    'please sit': {'actions': ['sit'], 'speech': 'Sitting!'},
+    'stand': {'actions': ['stand'], 'speech': 'Standing up!'},
+    'stand up': {'actions': ['stand'], 'speech': 'Standing up!'},
+    'get up': {'actions': ['stand'], 'speech': 'Standing up!'},
+    'lie down': {'actions': ['lie'], 'speech': 'Lying down.'},
+    'lay down': {'actions': ['lie'], 'speech': 'Lying down.'},
+    'down': {'actions': ['lie'], 'speech': 'Going down.'},
+
+    # Tricks
+    'bow': {'actions': ['stretch'], 'speech': 'Take a bow!'},
+    'take a bow': {'actions': ['stretch'], 'speech': 'Thank you, thank you!'},
+    'stretch': {'actions': ['stretch'], 'speech': 'Stretching!'},
+    'shake': {'actions': ['wag_tail', 'head_up_down'], 'speech': 'Nice to meet you!'},
+    'shake hands': {'actions': ['wag_tail', 'head_up_down'], 'speech': 'Nice to meet you!'},
+    'spin': {'actions': ['turn_right', 'turn_right'], 'speech': 'Wheee!'},
+    'turn around': {'actions': ['turn_right', 'turn_right'], 'speech': 'Spinning!'},
+    'dance': {'actions': ['turn_right', 'turn_left', 'wag_tail'], 'speech': 'Dancing!'},
+    'push up': {'actions': ['push_up'], 'speech': 'Exercise time!'},
+    'push ups': {'actions': ['push_up', 'push_up'], 'speech': 'One, two!'},
+    'do a trick': {'actions': ['stretch', 'wag_tail'], 'speech': 'How about this?'},
+    'roll over': {'actions': ['lie', 'twist_body'], 'speech': 'Rolling!'},
+    'play dead': {'actions': ['lie'], 'speech': ''},
+    'jump': {'actions': ['push_up'], 'speech': 'Jumping!'},
+
+    # Movement
+    'come': {'actions': ['forward', 'forward', 'forward'], 'speech': 'Coming!'},
+    'come here': {'actions': ['forward', 'forward', 'forward'], 'speech': 'On my way!'},
+    'fetch': {'actions': ['forward', 'forward', 'wag_tail'], 'speech': "I'll get it!"},
+    'forward': {'actions': ['forward'], 'speech': ''},
+    'go': {'actions': ['forward'], 'speech': ''},
+    'back': {'actions': ['backward'], 'speech': ''},
+    'back up': {'actions': ['backward', 'backward'], 'speech': 'Backing up!'},
+    'go back': {'actions': ['backward', 'backward'], 'speech': 'Going back!'},
+    'turn left': {'actions': ['turn_left'], 'speech': ''},
+    'turn right': {'actions': ['turn_right'], 'speech': ''},
+    'stop': {'actions': ['stand'], 'speech': 'Stopping.'},
+    'stay': {'actions': ['stand'], 'speech': 'Staying!'},
+    'wait': {'actions': ['stand'], 'speech': 'Waiting!'},
+
+    # Fun
+    'bark': {'actions': ['head_bark'], 'speech': ''},
+    'speak': {'actions': ['head_bark', 'head_bark'], 'speech': ''},
+    'say something': {'actions': ['head_bark', 'head_bark'], 'speech': ''},
+    'wag': {'actions': ['wag_tail'], 'speech': ''},
+    'wag tail': {'actions': ['wag_tail', 'wag_tail'], 'speech': 'Happy!'},
+    'wag your tail': {'actions': ['wag_tail', 'wag_tail'], 'speech': 'Happy!'},
+    'good boy': {'actions': ['wag_tail', 'head_bark'], 'speech': 'Thank you!'},
+    'good dog': {'actions': ['wag_tail', 'head_bark'], 'speech': 'Woof!'},
+    'good girl': {'actions': ['wag_tail', 'head_bark'], 'speech': 'Thank you!'},
+
+    # Greetings
+    'hello': {'actions': ['wag_tail', 'head_bark'], 'speech': 'Hello!'},
+    'hi': {'actions': ['wag_tail'], 'speech': 'Hi there!'},
+    'hey buddy': {'actions': ['wag_tail', 'head_bark'], 'speech': 'Hey! What can I do?'},
+    'hey': {'actions': ['wag_tail'], 'speech': 'Hey!'},
+
+    # Sleep/Rest
+    'go to sleep': {'actions': ['lie', 'doze_off'], 'speech': 'Goodnight!'},
+    'sleep': {'actions': ['lie', 'doze_off'], 'speech': 'Goodnight!'},
+    'nap time': {'actions': ['lie', 'doze_off'], 'speech': 'Sleepy...'},
+    'wake up': {'actions': ['stand', 'shake_head'], 'speech': "I'm awake!"},
+}
 
 
 # Instructions for autonomous PiDog
@@ -604,49 +681,76 @@ class AutonomousDog:
     # shake_head, tilting_head_left, tilting_head_right, tilting_head,
     # head_bark, wag_tail, head_up_down, half_sit
     ACTION_MAP = {
-        'bark': 'head_bark',
-        'bark happy': 'head_bark',
-        'bark excited': 'head_bark',
-        'bark harder': 'head_bark',
-        'nod': 'head_up_down',
-        'head tilt': 'tilting_head',
-        'tilt head': 'tilting_head',
+        # Aliases for ActionFlow OPERATIONS (keys must be lowercase)
+        'bark': 'bark',
+        'bark happy': 'bark',
+        'bark excited': 'bark',
+        'bark harder': 'bark harder',
+        'head_bark': 'bark',
+        'head_up_down': 'nod',
+        'nod': 'nod',
+        'head tilt': 'tilting head',
+        'tilt head': 'tilting head',
+        'tilting_head': 'tilting head',
+        'wag_tail': 'wag tail',
         'lie down': 'lie',
-        'look around': 'tilting_head',
-        'think': 'tilting_head',
-        'sniff': 'head_up_down',
-        'yawn': 'doze_off',
-        'sleep': 'doze_off',
-        'doze off': 'doze_off',
-        'spin': 'turn_right',
-        'excited spin': 'turn_right',
+        'look around': 'tilting head',
+        'think': 'think',
+        'sniff': 'nod',
+        'yawn': 'doze off',
+        'sleep': 'doze off',
+        'doze off': 'doze off',
+        'spin': 'turn right',
+        'excited spin': 'turn right',
         'play bow': 'stretch',
-        'shake head': 'shake_head',
-        'twist body': 'turn_right',
-        'lick hand': 'head_up_down',
-        'whimper': 'head_up_down',
-        'surprise': 'tilting_head',
-        'recall': 'tilting_head',
+        'shake head': 'shake head',
+        'twist body': 'twist body',
+        'twist_body': 'twist body',
+        'lick hand': 'lick hand',
+        'whimper': 'nod',
+        'surprise': 'surprise',
+        'recall': 'recall',
         'stop': 'stand',
+        'turn_left': 'turn left',
+        'turn_right': 'turn right',
+        'push_up': 'push up',
+        'high_five': 'high five',
     }
 
     def _execute_actions(self, actions: List[str]):
         """Execute actions on the dog"""
         if self.voice_dog and hasattr(self.voice_dog, 'action_flow'):
             self.voice_dog.action_flow.add_action(*actions)
+        elif hasattr(self, 'action_flow') and self.action_flow:
+            # Local-only mode with ActionFlow
+            # Map action names to valid ActionFlow operations
+            # ActionFlow OPERATIONS keys use spaces (e.g., "wag tail", "turn left")
+            mapped_actions = []
+            for action in actions:
+                action_lower = action.lower()
+                if action_lower in self.ACTION_MAP:
+                    mapped_actions.append(self.ACTION_MAP[action_lower])
+                else:
+                    # Convert underscores to spaces to match ActionFlow keys
+                    mapped_actions.append(action_lower.replace('_', ' '))
+
+            if mapped_actions:
+                logger.info(f"Executing actions via ActionFlow: {mapped_actions}")
+                try:
+                    self.action_flow.add_action(*mapped_actions)
+                except Exception as e:
+                    logger.error(f"ActionFlow.add_action failed: {e}")
         elif hasattr(self, 'pidog') and self.pidog:
-            # Local-only mode: use Pidog directly
+            # Fallback: use Pidog directly (less coordinated)
             for action in actions:
                 try:
-                    # First check our mapping table
                     action_lower = action.lower()
                     if action_lower in self.ACTION_MAP:
                         action_name = self.ACTION_MAP[action_lower]
                     else:
-                        # Convert spaces to underscores (e.g., "wag tail" -> "wag_tail")
                         action_name = action_lower.replace(' ', '_')
 
-                    logger.debug(f"Executing action: {action_name}")
+                    logger.info(f"Executing action directly: {action_name}")
                     self.pidog.do_action(action_name, speed=80)
                 except Exception as e:
                     logger.warning(f"Action '{action}' -> '{action_name}' failed: {e}")
@@ -661,10 +765,18 @@ class AutonomousDog:
         elif hasattr(self, 'tts') and self.tts:
             # Local-only mode: use Piper TTS
             try:
-                logger.debug(f"Speaking: {text}")
+                logger.info(f"Speaking: {text}")
                 self.tts.say(text)
             except Exception as e:
                 logger.warning(f"TTS failed: {e}")
+
+    def _set_rgb(self, style, color, brightness=1):
+        """Set RGB strip color (local-only mode feedback)."""
+        if hasattr(self, 'pidog') and self.pidog:
+            try:
+                self.pidog.rgb_strip.set_mode(style, color, brightness)
+            except Exception:
+                pass
 
     def _get_distance(self) -> float:
         """Get ultrasonic distance"""
@@ -683,6 +795,120 @@ class AutonomousDog:
     def _get_image(self):
         """Get current camera image from shared camera pool"""
         return CameraPool.get_instance().get_frame()
+
+    def _voice_listener_loop(self):
+        """Listen for voice commands in local-only mode.
+
+        Continuously listens for the wake word followed by a command.
+        When detected, executes the corresponding action from VOICE_COMMANDS.
+        """
+        logger.info("Voice listener started - say 'hey buddy' followed by a command")
+        logger.info(f"Wake words configured: {self.wake_word}")
+
+        # Wait for _running flag (set after full initialization completes)
+        for _ in range(60):  # Up to 30 seconds
+            if self._running:
+                break
+            time.sleep(0.5)
+        if not self._running:
+            logger.warning("Voice listener: _running never became True, exiting")
+            return
+
+        while self._running:
+            try:
+                # Dim cyan breath while listening
+                self._set_rgb('breath', 'cyan', 0.5)
+
+                # Listen for speech (blocking with timeout)
+                text = self.stt.listen(timeout=5.0)
+
+                if not text:
+                    # No speech — dim back
+                    self._set_rgb('breath', 'cyan', 0.2)
+                    continue
+
+                text_lower = text.lower().strip()
+                logger.info(f"Heard: '{text_lower}'")
+
+                # Brief green flash to show we heard something
+                self._set_rgb('boom', 'green', 1)
+
+                # Strip punctuation for wake word matching
+                # Moonshine often transcribes "hey buddy" as "Hey, buddy."
+                text_clean = re.sub(r'[^\w\s]', '', text_lower)
+
+                # Check for wake word
+                wake_detected = False
+                command_text = text_clean
+
+                for wake in self.wake_word:
+                    wake_lower = wake.lower()
+                    if wake_lower in text_clean:
+                        wake_detected = True
+                        # Extract command after wake word
+                        parts = text_clean.split(wake_lower, 1)
+                        command_text = parts[-1].strip() if len(parts) > 1 else ""
+                        break
+
+                if not wake_detected:
+                    # Heard speech but no wake word — dim back
+                    self._set_rgb('breath', 'cyan', 0.2)
+                    continue
+
+                # Wake word detected — pink while processing
+                self._set_rgb('breath', 'pink', 1)
+                logger.info(f"Wake word detected, command: '{command_text}'")
+                self._handle_voice_command(command_text)
+
+                # Back to dim cyan after command handled
+                self._set_rgb('breath', 'cyan', 0.5)
+
+            except Exception as e:
+                logger.error(f"Voice listener error: {e}")
+                time.sleep(1.0)
+
+    def _handle_voice_command(self, text: str):
+        """Match and execute a voice command.
+
+        Args:
+            text: The command text (after wake word removed)
+        """
+        if not text:
+            # Just wake word with no command - acknowledge and wait
+            self._set_rgb('speak', 'pink', 1)
+            self._speak("Yes?")
+            self._execute_actions(['nod'])
+            return
+
+        # Try exact match first, then fuzzy match
+        cmd = None
+        matched_phrase = None
+
+        if text in VOICE_COMMANDS:
+            cmd = VOICE_COMMANDS[text]
+            matched_phrase = text
+        else:
+            for phrase, c in VOICE_COMMANDS.items():
+                if phrase in text:
+                    cmd = c
+                    matched_phrase = phrase
+                    break
+
+        if cmd:
+            self._set_rgb('listen', 'yellow', 1)  # Thinking
+            if cmd['speech']:
+                self._set_rgb('speak', 'pink', 1)  # Speaking
+                self._speak(cmd['speech'])
+            self._execute_actions(cmd['actions'])
+            logger.info(f"Executed command: {matched_phrase}" +
+                         (f" (from '{text}')" if matched_phrase != text else ""))
+            return
+
+        # No match found - confused response
+        logger.info(f"Unknown command: {text}")
+        self._set_rgb('boom', 'red', 1)
+        self._speak("I don't know that one.")
+        self._execute_actions(['shake_head'])
 
     def _autonomous_prompt(self, prompt: str) -> str:
         """Send autonomous prompt to Claude"""
@@ -783,8 +1009,12 @@ class AutonomousDog:
                 # and just use the base Pidog hardware directly
                 if self.local_only and self.llm is None:
                     logger.info("Local-only mode: Using Pidog hardware without VoiceAssistant")
-                    from pidog import Pidog
+                    from pidog_os import Pidog
+                    from pidog_os.action_flow import ActionFlow
                     self.pidog = Pidog()
+                    self.action_flow = ActionFlow(self.pidog)
+                    self.action_flow.start()
+                    logger.info("ActionFlow started for local-only mode")
                     self.voice_dog = None
 
                     # Initialize TTS for local-only mode
@@ -798,6 +1028,23 @@ class AutonomousDog:
                             self.tts = None
                     else:
                         self.tts = None
+
+                    # Initialize STT for voice commands
+                    if STT_AVAILABLE:
+                        try:
+                            self.stt = MoonshineStt()
+                            logger.info("Local STT initialized (Moonshine)")
+                            # Start voice listener thread
+                            self._voice_listener_thread = threading.Thread(
+                                target=self._voice_listener_loop, daemon=True
+                            )
+                            self._voice_listener_thread.start()
+                            logger.info("Voice command listener started")
+                        except Exception as e:
+                            logger.warning(f"Failed to initialize STT: {e}")
+                            self.stt = None
+                    else:
+                        self.stt = None
                 else:
                     # Build instructions with memory context
                     instructions = self._get_instructions()
@@ -824,6 +1071,19 @@ class AutonomousDog:
                     self._voice_thread = threading.Thread(target=self.voice_dog.run, daemon=True)
                     self._voice_thread.start()
                     logger.info("Voice assistant started")
+
+                    # Replace Vosk STT with Moonshine in VoiceAssistant
+                    if STT_AVAILABLE:
+                        try:
+                            moonshine_stt = MoonshineStt()
+                            if moonshine_stt.is_ready():
+                                moonshine_stt.set_wake_words(self.wake_word)
+                                self.voice_dog.stt = moonshine_stt
+                                logger.info("VoiceAssistant STT replaced with Moonshine")
+                            else:
+                                logger.warning("Moonshine STT not ready, keeping default STT")
+                        except Exception as e:
+                            logger.warning(f"Failed to replace STT with Moonshine: {e}")
 
                     # Share picamera2 instance with CameraPool for vision components
                     # Wait briefly for camera to initialize
@@ -880,6 +1140,9 @@ class AutonomousDog:
             self.maintainer.start()
 
         logger.info(f"{self.name} is ready!")
+
+        # Dim cyan breath = alive and listening
+        self._set_rgb('breath', 'cyan', 0.2)
 
     def _register_cleanup_handlers(self):
         """Register atexit and signal handlers for proper GPIO cleanup"""
@@ -956,7 +1219,15 @@ class AutonomousDog:
         # 5. Release camera (after all consumers stopped)
         CameraPool.get_instance().release()
 
-        # 6. Close Pidog hardware (release GPIO)
+        # 6. Stop ActionFlow if running (local-only mode)
+        if hasattr(self, 'action_flow') and self.action_flow:
+            try:
+                self.action_flow.stop()
+                logger.info("ActionFlow stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping ActionFlow: {e}")
+
+        # 7. Close Pidog hardware (release GPIO)
         if hasattr(self, 'pidog') and self.pidog:
             try:
                 self.pidog.close()

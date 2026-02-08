@@ -120,7 +120,7 @@ def run_interactive_mode(args):
     from pidog_brain.personality import PersonalityManager
     from pidog_brain.tools import ToolExecutor
     from pidog_brain.robust_llm import RobustLLM
-    from pidog.anthropic_llm import Anthropic
+    from pidog_os.anthropic_llm import Anthropic
 
     # Initialize
     memory = MemoryManager()

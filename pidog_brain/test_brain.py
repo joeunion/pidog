@@ -245,7 +245,7 @@ def test_claude_integration():
     from pidog_brain.personality import PersonalityManager
     from pidog_brain.tools import ToolExecutor
     from pidog_brain.robust_llm import RobustLLM
-    from pidog.anthropic_llm import Anthropic
+    from pidog_os.anthropic_llm import Anthropic
     import tempfile
 
     mm = MemoryManager("/tmp/pidog_claude_test.db")

@@ -94,7 +94,7 @@ class RobustLLM:
     """Wrapper that adds robustness to any LLM client
 
     Usage:
-        from pidog.anthropic_llm import Anthropic
+        from pidog_os.anthropic_llm import Anthropic
 
         base_llm = Anthropic(api_key=key)
         llm = RobustLLM(base_llm, timeout=30, max_retries=3)
